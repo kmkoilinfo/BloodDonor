@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Blood Donor - View Directory</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/PapaParse/5.4.1/papaparse.min.js"></script>
+</head>
+<body class="bg-gray-50 text-gray-800 min-h-screen flex flex-col justify-between" x-data="viewApp()" x-init="fetchDonors()">
+
+  <!-- Toast Notification -->
+  <div x-show="toastMessage" x-transition.opacity class="fixed bottom-5 right-5 z-50 bg-gray-900 text-white px-4 py-2 rounded-lg shadow-lg text-sm flex items-center gap-2">
+    <span>✅</span> <span x-text="toastMessage"></span>
+  </div>
+
+  <!-- Header -->
+  <header class="bg-red-600 text-white shadow-md">
+    <div class="max-w-6xl mx-auto px-4 py-4 flex justify-between items-center">
+      <h1 class="text-lg font-bold flex items-center gap-2">🩸 Donor Directory (<span x-text="donors.length"></span>)</h1>
+      <a href="index.html" class="bg-red-700 hover:bg-red-800 px-3 py-1.5 rounded-lg text-sm font-semibold transition">＋ Register New</a>
+    </div>
+  </header>
+
+  <!-- Main View Container -->
+  <main class="max-w-6xl w-full mx-auto p-4 my-6 flex-grow space-y-4">
+    
+    <!-- Filters and Search Toolbar -->
+    <div class="bg-white rounded-xl shadow-md p-4 flex flex-col md:flex-row justify-between gap-3 items-center">
+      <input type="text" x-model="search" @input="page = 1" placeholder="Search name, address, pincode..." class="w-full md:w-80 px-3 py-2 border rounded-lg focus:ring-2 focus:ring-red-500 focus:outline-none text-sm">
+      
+      <div class="flex flex-wrap gap-2 w-full md:w-auto items-center">
+        <select x-model="filterBloodGroup" @change="page = 1" class="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none">
+          <option value="">All Blood Groups</option>
+          <template x-for="bg in bloodGroups">
+            <option :value="bg" x-text="bg"></option>
+          </template>
+        </select>
+
+        <select x-model="filterAvailability" @change="page = 1" class="px-3 py-2 border rounded-lg bg-white text-sm focus:outline-none">
+          <option value="">All Statuses</option>
+          <option value="Yes">Available</option>
+          <option value="No">Unavailable / Temp</option>
+        </select>
+
+        <button @click="fetchDonors" class="bg-gray-100 border text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 text-sm font-semibold ml-auto md:ml-0">
+          🔄 Refresh
+        </button>
+      </div>
+    </div>
+
+    <!-- Loading State -->
+    <div x-show="fetching" class="text-center py-12 text-gray-500 bg-white rounded-xl shadow-md">Loading donor records from CSV...</div>
+
+    <!-- Data Table Grid -->
+    <div x-show="!fetching" class="bg-white rounded-xl shadow-md overflow-hidden">
+      <div class="overflow-x-auto">
+        <table class="w-full text-left border-collapse">
+          <thead>
+            <tr class="bg-red-50 text-red-700 text-xs uppercase tracking-wider border-b">
+              <th class="py-3 px-4 font-bold">Donor ID</th>
+              <th class="py-3 px-4 font-bold">Full Name</th>
+              <th class="py-3 px-4 font-bold">Blood Group</th>
+              <th class="py-3 px-4 font-bold">Address / Pincode</th>
+              <th class="py-3 px-4 font-bold">Mobile</th>
+              <th class="py-3 px-4 font-bold">Age</th>
+              <th class="py-3 px-4 font-bold">Status</th>
+              <th class="py-3 px-4 font-bold text-center">Share</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-200 text-sm">
+            <template x-for="(donor, idx) in paginatedDonors" :key="idx">
+              <tr class="hover:bg-gray-50 transition">
+                <td class="py-3 px-4 font-mono text-xs text-gray-500" x-text="donor['Donor ID'] || ('#' + (startIndex + idx + 1))"></td>
+                <td class="py-3 px-4 font-semibold text-gray-900" x-text="donor['Full Name']"></td>
+                <td class="py-3 px-4">
+                  <span class="bg-red-100 text-red-700 font-bold px-2 py-0.5 rounded text-xs" x-text="donor['Blood Group']"></span>
+                </td>
+                <td class="py-3 px-4 text-gray-600 max-w-xs truncate">
+                  <span x-text="getAddress(donor)"></span>
+                  <span class="text-xs text-gray-400" x-text="getPincode(donor) ? '(' + getPincode(donor) + ')' : ''"></span>
+                </td>
+                <td class="py-3 px-4 text-gray-600" x-text="donor['Mobile Number']"></td>
+                <td class="py-3 px-4 text-gray-600" x-text="donor['Age']"></td>
+                <td class="py-3 px-4">
+                  <span :class="donor['Available to Donate'] === 'Yes' ? 'text-green-600 bg-green-50 px-2 py-1 rounded text-xs font-semibold' : 'text-orange-600 bg-orange-50 px-2 py-1 rounded text-xs font-semibold'" x-text="donor['Available to Donate'] || 'Yes'"></span>
+                </td>
+                <td class="py-3 px-4 text-center">
+                  <div class="inline-flex gap-1">
+                    <button @click="shareDonor(donor)" title="Share" class="bg-red-50 text-red-600 hover:bg-red-100 p-2 rounded-lg transition">📤</button>
+                    <button @click="copyDonor(donor)" title="Copy" class="bg-gray-100 text-gray-700 hover:bg-gray-200 p-2 rounded-lg transition">📋</button>
+                  </div>
+                </td>
+              </tr>
+            </template>
+          </tbody>
+        </table>
+      </div>
+
+      <div x-show="filteredDonors.length === 0" class="text-center py-12 text-gray-500">No matching donor records found.</div>
+
+      <!-- Pagination Controls -->
+      <div class="px-4 py-3 bg-gray-50 border-t flex flex-col sm:flex-row justify-between items-center gap-3 text-sm">
+        <div class="text-gray-500 text-xs sm:text-sm">
+          Showing <span x-text="filteredDonors.length ? startIndex + 1 : 0"></span> to <span x-text="endIndex"></span> of <span x-text="filteredDonors.length"></span> entries
+        </div>
+        <div class="flex gap-2">
+          <button @click="prevPage" :disabled="page === 1" class="px-3 py-1.5 border rounded bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-45 text-xs font-semibold">Previous</button>
+          <span class="px-3 py-1.5 text-gray-700 text-xs font-medium self-center">Page <span x-text="page"></span> of <span x-text="totalPages || 1"></span></span>
+          <button @click="nextPage" :disabled="page >= totalPages" class="px-3 py-1.5 border rounded bg-white text-gray-700 hover:bg-gray-100 disabled:opacity-45 text-xs font-semibold">Next</button>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <footer class="text-center py-6 text-xs text-gray-400">Blood Donor Community Portal &copy; 2026</footer>
+
+  <script>
+    // Your exact published CSV link
+    const CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQwyZqv3tsbauHCmr36tyPKsdIoPhcMH5j-PsF-iEAFm10xwCU-2dPvDA-U2tHR706uMTDhxEImeOSV/pub?output=csv";
+
+    function viewApp() {
+      return {
+        bloodGroups: ['A+', 'A-', 'B+', 'B-', 'O+', 'O-', 'AB+', 'AB-'],
+        fetching: false,
+        donors: [],
+        search: '',
+        filterBloodGroup: '',
+        filterAvailability: '',
+        page: 1,
+        perPage: 5,
+        toastMessage: '',
+
+        getAddress(d) {
+          return d['Address'] || d['Apartment / Block'] || '';
+        },
+
+        getPincode(d) {
+          return d['Pincode'] || d['Flat No.'] || '';
+        },
+
+        showToast(msg) {
+          this.toastMessage = msg;
+          setTimeout(() => { this.toastMessage = ''; }, 3000);
+        },
+
+        formatDonorText(d) {
+          return `🩸 Blood Donor Details:\n` +
+                 `• Name: ${d['Full Name'] || 'N/A'}\n` +
+                 `• Blood Group: ${d['Blood Group'] || 'N/A'}\n` +
+                 `• Mobile: ${d['Mobile Number'] || 'N/A'}\n` +
+                 `• Address: ${this.getAddress(d) || 'N/A'} ${this.getPincode(d) ? '- ' + this.getPincode(d) : ''}\n` +
+                 `• Available: ${d['Available to Donate'] || 'N/A'}`;
+        },
+
+        async shareDonor(d) {
+          const text = this.formatDonorText(d);
+          if (navigator.share) {
+            try { await navigator.share({ title: 'Blood Donor Contact', text: text }); }
+            catch (err) { if (err.name !== 'AbortError') this.copyDonor(d); }
+          } else { this.copyDonor(d); }
+        },
+
+        copyDonor(d) {
+          navigator.clipboard.writeText(this.formatDonorText(d)).then(() => {
+            this.showToast('Donor details copied to clipboard!');
+          });
+        },
+
+        fetchDonors() {
+          this.fetching = true;
+          Papa.parse(CSV_URL + "&t=" + new Date().getTime(), {
+            download: true,
+            header: true,
+            skipEmptyLines: true,
+            complete: (results) => {
+              // Accepts any row that has at least a Full Name or Donor ID
+              this.donors = results.data.filter(row => row['Full Name'] || row['Donor ID']);
+              this.fetching = false;
+            },
+            error: (err) => {
+              console.error(err);
+              this.fetching = false;
+            }
+          });
+        },
+
+        get filteredDonors() {
+          return this.donors.filter(d => {
+            const q = this.search.toLowerCase();
+            const addr = this.getAddress(d).toLowerCase();
+            const pin = String(this.getPincode(d)).toLowerCase();
+            const name = (d['Full Name'] || '').toLowerCase();
+
+            const matchesSearch = !this.search || name.includes(q) || addr.includes(q) || pin.includes(q);
+            const matchesBG = !this.filterBloodGroup || d['Blood Group'] === this.filterBloodGroup;
+            const matchesAvail = !this.filterAvailability || 
+              (this.filterAvailability === 'Yes' ? d['Available to Donate'] === 'Yes' : d['Available to Donate'] !== 'Yes');
+
+            return matchesSearch && matchesBG && matchesAvail;
+          });
+        },
+
+        get totalPages() { return Math.ceil(this.filteredDonors.length / this.perPage); },
+        get startIndex() { return (this.page - 1) * this.perPage; },
+        get endIndex() { return Math.min(this.startIndex + this.perPage, this.filteredDonors.length); },
+        get paginatedDonors() { return this.filteredDonors.slice(this.startIndex, this.endIndex); },
+
+        nextPage() { if (this.page < this.totalPages) this.page++; },
+        prevPage() { if (this.page > 1) this.page--; }
+      }
+    }
+  </script>
+</body>
+</html>
